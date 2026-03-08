@@ -11,7 +11,8 @@ let faceCamera = null;
 const FACE_FILTER = 0.25;
 const CONTROL_FILTER = 0.2;
 const FACE_WIDTH_RANGE = { min: 0.02, max: 0.15 };
-let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 3.0 }; // distance 추가
+let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 3.0 };
+console.log("Sketch loaded - Version 1.0.5"); // 버전 표시
 
 function setup() {
   // 전체 화면 캔버스
@@ -244,13 +245,19 @@ function initFaceTracking() {
 }
 
 function handleFaceResults(results) {
+  let mirroredX = 0.5; // 미리 정의
+  let centerX = 0.5;
+  let centerY = 0.5;
+  let boxWidth = 0;
+  let estDistance = 3.0;
+
   try {
     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
       faceData.active = false;
       return;
     }
 
-    // 모든 얼굴 중 가장 "가까운" (바운딩 박스가 가장 큰) 얼굴 찾기
+    // 모든 얼굴 중 가장 "가까운" 얼굴 찾기
     let closestFaceIndex = 0;
     let maxBoxWidth = -1;
 
@@ -280,16 +287,16 @@ function handleFaceResults(results) {
       maxY = Math.max(maxY, lm.y);
     }
 
-    const boxWidth = Math.max(0, maxX - minX);
+    boxWidth = Math.max(0, maxX - minX);
     if (boxWidth <= 0) {
       faceData.active = false;
       return;
     }
 
-    const centerX = (minX + maxX) * 0.5;
-    const centerY = (minY + maxY) * 0.5;
-    const mirroredX = clamp01(1 - centerX);
-    const estDistance = 0.15 / boxWidth;
+    centerX = (minX + maxX) * 0.5;
+    centerY = (minY + maxY) * 0.5;
+    mirroredX = clamp01(1 - centerX);
+    estDistance = 0.15 / boxWidth;
 
     faceData.active = true;
     faceData.lastRawWidth = boxWidth;

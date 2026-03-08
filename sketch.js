@@ -193,7 +193,7 @@ function initFaceTracking() {
   }
 
   faceVideo = createCapture({ video: { facingMode: 'user' }, audio: false });
-  faceVideo.size(320, 240); // 해상도 반으로 축소 (속도 향상)
+  faceVideo.size(640, 480); // 해상도를 다시 올려서 먼 거리 인식률 개선
   faceVideo.elt.muted = true;
   faceVideo.elt.playsInline = true;
   faceVideo.hide();
@@ -211,12 +211,12 @@ function initFaceTracking() {
 
   let frameSkipCounter = 0;
   faceCamera = new Camera(faceVideo.elt, {
-    width: 320,
-    height: 240,
+    width: 640,
+    height: 480,
     onFrame: async () => {
       try {
-        // 3프레임 당 1번만 처제하여 CPU 부하 대폭 감소 (약 20fps)
-        if (frameSkipCounter % 3 === 0) {
+        // 2프레임 당 1번만 처리 (해상도가 높아졌으므로 스킵 주기를 약간 조절)
+        if (frameSkipCounter % 2 === 0) {
           if (faceMeshInstance && faceVideo.elt.readyState >= 2) {
             await faceMeshInstance.send({ image: faceVideo.elt });
           }

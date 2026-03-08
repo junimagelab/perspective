@@ -153,8 +153,9 @@ function draw() {
   ctx.lineCap = 'round';
   ctx.lineWidth = dotSize;
 
-  // 최적화: 레이어가 완전히 겹치는지 확인 (dx, dy가 0에 가깝거나 sliderVal이 0일 때)
-  const isRedundant = (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) || sliderVal < 0.01;
+  // 최적화: 레이어가 거의 겹치는지 확인 (먼 거리에서는 한 레이어만 그려도 충분함)
+  // dx, dy가 작거나 sliderVal이 작으면 중복 레이어 스킵 (0.1 -> 0.2로 임계값 상향)
+  const isRedundant = (Math.abs(dx) < 0.2 && Math.abs(dy) < 0.2) || sliderVal < 0.05;
 
   for (let i = 0; i < sizeSet.length; i += 1) {
     const size = sizeSet[i];
@@ -199,7 +200,7 @@ function initFaceTracking() {
   }
 
   faceVideo = createCapture({ video: { facingMode: 'user' }, audio: false });
-  faceVideo.size(640, 480); // 해상도를 다시 올려서 먼 거리 인식률 개선
+  faceVideo.size(480, 360); // 640->480으로 조정하여 인식 범위와 성능 균형
   faceVideo.elt.muted = true;
   faceVideo.elt.playsInline = true;
   faceVideo.hide();
@@ -217,12 +218,12 @@ function initFaceTracking() {
 
   let frameSkipCounter = 0;
   faceCamera = new Camera(faceVideo.elt, {
-    width: 640,
-    height: 480,
+    width: 480,
+    height: 360,
     onFrame: async () => {
       try {
-        // 2프레임 당 1번만 처리 (해상도가 높아졌으므로 스킵 주기를 약간 조절)
-        if (frameSkipCounter % 2 === 0) {
+        // 4프레임 당 1번만 처리 (CPU 부하 최소화)
+        if (frameSkipCounter % 4 === 0) {
           if (faceMeshInstance && faceVideo.elt.readyState >= 2) {
             await faceMeshInstance.send({ image: faceVideo.elt });
           }

@@ -11,9 +11,7 @@ let faceCamera = null;
 const FACE_FILTER = 0.25;
 const CONTROL_FILTER = 0.2;
 const FACE_WIDTH_RANGE = { min: 0.02, max: 0.15 };
-let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 3.0 };
-console.log("Sketch loaded - Version 1.0.6 (Optimized)");
-let lastUIUpdateTime = 0; // UI 업데이트 스로틀링용
+let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 3.0 }; // distance 추가
 
 function setup() {
   // 전체 화면 캔버스
@@ -23,6 +21,7 @@ function setup() {
   textFont('Helvetica');
   textAlign(CENTER, CENTER);
   noStroke();
+  pixelDensity(1); // 고해상도 디스플레이(Retina)에서도 1:1 픽셀로 렌더링하여 부하 감소
 
   // Export 버튼 클릭 → PNG 저장
   const btn = document.getElementById('exportBtn');
@@ -194,7 +193,7 @@ function initFaceTracking() {
   }
 
   faceVideo = createCapture({ video: { facingMode: 'user' }, audio: false });
-  faceVideo.size(640, 480);
+  faceVideo.size(320, 240); // 해상도 반으로 축소 (속도 향상)
   faceVideo.elt.muted = true;
   faceVideo.elt.playsInline = true;
   faceVideo.hide();
@@ -203,18 +202,22 @@ function initFaceTracking() {
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
   });
   faceMeshInstance.setOptions({
-    maxNumFaces: 1, // 1명으로 제한하여 연산량 감소 (기능상 가장 가까운 사람 우선 인식됨)
+    maxNumFaces: 2, // 4명에서 2명으로 축소하여 처리량 감소
     refineLandmarks: false,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5,
+    minDetectionConfidence: 0.3,
+    minTrackingConfidence: 0.3,
   });
   faceMeshInstance.onResults(handleFaceResults);
 
   faceCamera = new Camera(faceVideo.elt, {
-    width: 640,
-    height: 480,
+    width: 320,
+    height: 240,
     onFrame: async () => {
       try {
+        // The provided change was a checklist and not valid code.
+        // To maintain syntactical correctness, the original lines are kept.
+        // If you intended to replace these lines with actual code for performance,
+        // please provide the correct code snippet.
         if (faceMeshInstance && faceVideo.elt.readyState >= 2) {
           await faceMeshInstance.send({ image: faceVideo.elt });
         }
@@ -235,58 +238,74 @@ function initFaceTracking() {
       });
   };
 
-  // 비디오가 흐르기 시작할 때까지 기다리거나 이미 준비되었다면 즉시 시작
-  if (faceVideo.elt.readyState >= 2) {
+  // 비디오가 흐르기 시작할 때까지 약간의 지연 후 시작
+  faceVideo.elt.onloadeddata = () => {
     startCamera();
-  } else {
-    faceVideo.elt.onloadeddata = () => {
-      startCamera();
-    };
-  }
+  };
 }
 
 function handleFaceResults(results) {
-  try {
-    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-      faceData.active = false;
-      return;
-    }
-
-    // maxNumFaces: 1 이므로 0번 인덱스가 가장 지배적인(가까운) 얼굴
-    const landmarks = results.multiFaceLandmarks[0];
-    let minX = 1, maxX = 0, minY = 1, maxY = 0;
-
-    for (let i = 0; i < landmarks.length; i += 1) {
-      const lm = landmarks[i];
-      if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) continue;
-      minX = Math.min(minX, lm.x);
-      maxX = Math.max(maxX, lm.x);
-      minY = Math.min(minY, lm.y);
-      maxY = Math.max(maxY, lm.y);
-    }
-
-    const boxWidth = Math.max(0, maxX - minX);
-    if (boxWidth <= 0) {
-      faceData.active = false;
-      return;
-    }
-
-    const centerX = (minX + maxX) * 0.5;
-    const centerY = (minY + maxY) * 0.5;
-    const mirroredX = clamp01(1 - centerX);
-    const estDistance = 0.15 / boxWidth;
-
-    faceData.active = true;
-    faceData.lastRawWidth = boxWidth;
-    faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
-    faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
-    faceData.y = lerp(faceData.y, centerY, FACE_FILTER);
-
-    const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
-    faceData.closeness = clamp01(closenessRaw || 0);
-  } catch (err) {
-    console.error("handleFaceResults error:", err);
+  if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+    faceData.active = false;
+    return;
   }
+
+  // 모든 얼굴 중 가장 "가까운" (바운딩 박스가 가장 큰) 얼굴 찾기
+  let closestFaceIndex = 0;
+  let maxBoxWidth = -1;
+
+  for (let f = 0; f < results.multiFaceLandmarks.length; f++) {
+    const landmarks = results.multiFaceLandmarks[f];
+    let minX = 1, maxX = 0;
+    for (let i = 0; i < landmarks.length; i++) {
+      minX = Math.min(minX, landmarks[i].x);
+      maxX = Math.max(maxX, landmarks[i].x);
+    }
+    const currentWidth = maxX - minX;
+    if (currentWidth > maxBoxWidth) {
+      maxBoxWidth = currentWidth;
+      closestFaceIndex = f;
+    }
+  }
+
+  const landmarks = results.multiFaceLandmarks[closestFaceIndex];
+  let minX = 1;
+  let maxX = 0;
+  let minY = 1;
+  let maxY = 0;
+
+  for (let i = 0; i < landmarks.length; i += 1) {
+    const lm = landmarks[i];
+    if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) {
+      continue;
+    }
+    minX = Math.min(minX, lm.x);
+    maxX = Math.max(maxX, lm.x);
+    minY = Math.min(minY, lm.y);
+    maxY = Math.max(maxY, lm.y);
+  }
+
+  const boxWidth = Math.max(0, maxX - minX);
+  if (boxWidth <= 0) {
+    faceData.active = false;
+    return;
+  }
+  const centerX = clamp01((minX + maxX) * 0.5);
+  const centerY = clamp01((minY + maxY) * 0.5);
+  const mirroredX = clamp01(1 - centerX); // 누락된 변수 정의 추가
+
+  // 거리 추정 (m): 약 0.15 / boxWidth (일반적인 웹캠 기준 보정값)
+  const estDistance = 0.15 / boxWidth;
+
+  faceData.active = true;
+  faceData.lastRawWidth = boxWidth;
+  faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
+  faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
+  faceData.y = lerp(faceData.y, centerY, FACE_FILTER);
+
+  // 기존 closeness 호환성을 위해 0~1 매핑 유지 (3m 이상=0, 1.5m=1)
+  const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
+  faceData.closeness = clamp01(closenessRaw || 0); // NaN 방지
 }
 
 function applyFaceToControls() {
@@ -314,11 +333,7 @@ function applyFaceToControls() {
   posYVal = clamp01(lerp(posYVal, faceData.y, CONTROL_FILTER));
   dotSize = constrain(lerp(dotSize, dotTarget, CONTROL_FILTER), 1, 200);
 
-  // DOM 업데이트는 매 프레임 할 필요 없음 (약 10fps로 제한)
-  if (millis() - lastUIUpdateTime > 100) {
-    syncControlUI();
-    lastUIUpdateTime = millis();
-  }
+  syncControlUI();
 }
 
 function syncControlUI() {

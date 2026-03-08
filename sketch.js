@@ -212,17 +212,31 @@ function initFaceTracking() {
     width: 640,
     height: 480,
     onFrame: async () => {
-      if (faceMeshInstance) {
-        await faceMeshInstance.send({ image: faceVideo.elt });
+      try {
+        if (faceMeshInstance && faceVideo.elt.readyState >= 2) {
+          await faceMeshInstance.send({ image: faceVideo.elt });
+        }
+      } catch (e) {
+        console.error("onFrame error:", e);
       }
     },
   });
-  faceCamera.start().then(() => {
-    hideTrackingWarning();
-  }).catch((err) => {
-    console.warn('Face tracking camera failed to start:', err);
-    showTrackingWarning('Could not start camera. Check permissions or use manual controls.');
-  });
+
+  const startCamera = () => {
+    faceCamera.start()
+      .then(() => hideTrackingWarning())
+      .catch((err) => {
+        console.warn('Face tracking camera failed to start:', err);
+        showTrackingWarning('Could not start camera. Check permissions or use manual controls.');
+        // 재시도 로직 (필요시)
+        setTimeout(startCamera, 3000);
+      });
+  };
+
+  // 비디오가 흐르기 시작할 때까지 약간의 지연 후 시작
+  faceVideo.elt.onloadeddata = () => {
+    startCamera();
+  };
 }
 
 function handleFaceResults(results) {
@@ -286,7 +300,7 @@ function handleFaceResults(results) {
 
   // 기존 closeness 호환성을 위해 0~1 매핑 유지 (3m 이상=0, 1.5m=1)
   const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
-  faceData.closeness = clamp01(closenessRaw);
+  faceData.closeness = clamp01(closenessRaw || 0); // NaN 방지
 }
 
 function applyFaceToControls() {

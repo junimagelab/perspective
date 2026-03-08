@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Sketch</title>
+
+    <link rel="stylesheet" type="text/css" href="style.css">
+
+    <script src="libraries/p5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  </head>
+
+  <body>
+    <button id="exportBtn" class="export-btn" aria-label="Export canvas as PNG">Export PNG</button>
+    <div class="control-bar">
+      <select id="letterSelect" aria-label="Letter selection">
+        <option value="A">A</option>
+        <option value="B">B</option>
+        <option value="g">g</option>
+        <option value="H" selected>H</option>
+      </select>
+      <input id="sizeBar" type="range" min="0" max="1000" value="500" aria-label="Size control slider" />
+      <input id="posXBar" type="range" min="0" max="1000" value="500" aria-label="Horizontal position slider" />
+      <input id="dotBar" type="range" min="4" max="100" value="20" aria-label="Dot size slider" />
+    </div>
+    <div class="control-bar-vertical">
+      <input id="posYBar" class="vertical" type="range" min="0" max="1000" value="500" aria-label="Vertical position slider" />
+    </div>
+    <script src="sketch.js"></script>
+  </body>
+</html>

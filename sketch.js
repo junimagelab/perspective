@@ -10,7 +10,7 @@ let faceMeshInstance = null;
 let faceCamera = null;
 const FACE_FILTER = 0.25;
 const CONTROL_FILTER = 0.2;
-const FACE_WIDTH_RANGE = { min: 0.15, max: 0.6 };
+const FACE_WIDTH_RANGE = { min: 0.05, max: 0.3 };
 let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5 };
 
 function setup() {
@@ -92,6 +92,31 @@ function setup() {
     updateLetter();
   }
 
+  // Random 버튼 이벤트
+  const randomBtn = document.getElementById('randomBtn');
+  if (randomBtn) {
+    randomBtn.addEventListener('click', () => {
+      const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()';
+      const randomChar = chars.charAt(Math.floor(Math.random() * chars.length));
+      selectedLetter = randomChar;
+
+      // select 요소가 있으면 동기화 (커스텀 글자일 경우 선택 해제되거나 무시될 수 있음)
+      if (letterSel) {
+        // 기존 옵션에 있으면 선택, 없으면 그냥 selectedLetter만 업데이트
+        let found = false;
+        for (let i = 0; i < letterSel.options.length; i++) {
+          if (letterSel.options[i].value === randomChar) {
+            letterSel.selectedIndex = i;
+            found = true;
+            break;
+          }
+        }
+        // 만약 리스트에 없는 글자면? 그냥 선택된 상태 유지 혹은 첫번째로? 
+        // 여기서는 그냥 selectedLetter만 바뀌면 draw에서 반영되므로 괜찮음.
+      }
+    });
+  }
+
   initFaceTracking();
 }
 function draw() {
@@ -164,7 +189,7 @@ function initFaceTracking() {
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
   });
   faceMeshInstance.setOptions({
-    maxNumFaces: 1,
+    maxNumFaces: 4, // 여러 명 감지 허용
     refineLandmarks: false,
     minDetectionConfidence: 0.5,
     minTrackingConfidence: 0.5,
@@ -194,7 +219,25 @@ function handleFaceResults(results) {
     return;
   }
 
-  const landmarks = results.multiFaceLandmarks[0];
+  // 모든 얼굴 중 가장 "가까운" (바운딩 박스가 가장 큰) 얼굴 찾기
+  let closestFaceIndex = 0;
+  let maxBoxWidth = -1;
+
+  for (let f = 0; f < results.multiFaceLandmarks.length; f++) {
+    const landmarks = results.multiFaceLandmarks[f];
+    let minX = 1, maxX = 0;
+    for (let i = 0; i < landmarks.length; i++) {
+      minX = Math.min(minX, landmarks[i].x);
+      maxX = Math.max(maxX, landmarks[i].x);
+    }
+    const currentWidth = maxX - minX;
+    if (currentWidth > maxBoxWidth) {
+      maxBoxWidth = currentWidth;
+      closestFaceIndex = f;
+    }
+  }
+
+  const landmarks = results.multiFaceLandmarks[closestFaceIndex];
   let minX = 1;
   let maxX = 0;
   let minY = 1;
@@ -230,7 +273,8 @@ function handleFaceResults(results) {
 }
 
 function applyFaceToControls() {
-  const spacingTarget = 1 - faceData.closeness;
+  // 가까워질수록(closeness ↑) 글자 간격/크기도 커지도록 수정 (기존 1 - faceData.closeness 에서 변경)
+  const spacingTarget = faceData.closeness;
   const dotTarget = map(faceData.closeness, 0, 1, 6, 80);
 
   sliderVal = clamp01(lerp(sliderVal, spacingTarget, CONTROL_FILTER));

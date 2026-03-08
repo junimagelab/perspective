@@ -29,6 +29,25 @@ canvas {
   background: #000;
 }
 
+.random-btn {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 1000;
+  padding: 8px 16px;
+  font: 600 13px/1 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  color: #fff;
+  background: #000;
+  border: 1px solid #333;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.random-btn:hover {
+  background: #222;
+}
+
 .control-bar {
   position: fixed;
   right: 12px;

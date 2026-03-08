@@ -153,11 +153,17 @@ function draw() {
   ctx.lineCap = 'round';
   ctx.lineWidth = dotSize;
 
+  // 최적화: 레이어가 완전히 겹치는지 확인 (dx, dy가 0에 가깝거나 sliderVal이 0일 때)
+  const isRedundant = (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) || sliderVal < 0.01;
+
   for (let i = 0; i < sizeSet.length; i += 1) {
     const size = sizeSet[i];
     const weight = sizeRange === 0 ? 0 : (size - minSize) / sizeRange;
     ctx.font = `${size}px Helvetica, Arial, sans-serif`;
     ctx.strokeText(selectedLetter, centerX + dx * weight, centerY + dy * weight);
+
+    // 레이어가 겹치는 상황이면 첫 번째(가장 큰) 레이어만 그리고 중단
+    if (isRedundant) break;
   }
 
   // 디버그 정보 (나중에 필요 없으면 삭제)

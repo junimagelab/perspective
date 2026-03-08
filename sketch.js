@@ -12,7 +12,8 @@ const FACE_FILTER = 0.25;
 const CONTROL_FILTER = 0.2;
 const FACE_WIDTH_RANGE = { min: 0.02, max: 0.15 };
 let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 3.0 };
-console.log("Sketch loaded - Version 1.0.5"); // 버전 표시
+console.log("Sketch loaded - Version 1.0.6 (Optimized)");
+let lastUIUpdateTime = 0; // UI 업데이트 스로틀링용
 
 function setup() {
   // 전체 화면 캔버스
@@ -202,10 +203,10 @@ function initFaceTracking() {
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
   });
   faceMeshInstance.setOptions({
-    maxNumFaces: 4,
+    maxNumFaces: 1, // 1명으로 제한하여 연산량 감소 (기능상 가장 가까운 사람 우선 인식됨)
     refineLandmarks: false,
-    minDetectionConfidence: 0.3, // 먼 거리 대응을 위해 낮춤
-    minTrackingConfidence: 0.3,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5,
   });
   faceMeshInstance.onResults(handleFaceResults);
 
@@ -245,37 +246,14 @@ function initFaceTracking() {
 }
 
 function handleFaceResults(results) {
-  let mirroredX = 0.5; // 미리 정의
-  let centerX = 0.5;
-  let centerY = 0.5;
-  let boxWidth = 0;
-  let estDistance = 3.0;
-
   try {
     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
       faceData.active = false;
       return;
     }
 
-    // 모든 얼굴 중 가장 "가까운" 얼굴 찾기
-    let closestFaceIndex = 0;
-    let maxBoxWidth = -1;
-
-    for (let f = 0; f < results.multiFaceLandmarks.length; f++) {
-      const landmarks = results.multiFaceLandmarks[f];
-      let minX = 1, maxX = 0;
-      for (let i = 0; i < landmarks.length; i++) {
-        minX = Math.min(minX, landmarks[i].x);
-        maxX = Math.max(maxX, landmarks[i].x);
-      }
-      const currentWidth = maxX - minX;
-      if (currentWidth > maxBoxWidth) {
-        maxBoxWidth = currentWidth;
-        closestFaceIndex = f;
-      }
-    }
-
-    const landmarks = results.multiFaceLandmarks[closestFaceIndex];
+    // maxNumFaces: 1 이므로 0번 인덱스가 가장 지배적인(가까운) 얼굴
+    const landmarks = results.multiFaceLandmarks[0];
     let minX = 1, maxX = 0, minY = 1, maxY = 0;
 
     for (let i = 0; i < landmarks.length; i += 1) {
@@ -287,16 +265,16 @@ function handleFaceResults(results) {
       maxY = Math.max(maxY, lm.y);
     }
 
-    boxWidth = Math.max(0, maxX - minX);
+    const boxWidth = Math.max(0, maxX - minX);
     if (boxWidth <= 0) {
       faceData.active = false;
       return;
     }
 
-    centerX = (minX + maxX) * 0.5;
-    centerY = (minY + maxY) * 0.5;
-    mirroredX = clamp01(1 - centerX);
-    estDistance = 0.15 / boxWidth;
+    const centerX = (minX + maxX) * 0.5;
+    const centerY = (minY + maxY) * 0.5;
+    const mirroredX = clamp01(1 - centerX);
+    const estDistance = 0.15 / boxWidth;
 
     faceData.active = true;
     faceData.lastRawWidth = boxWidth;
@@ -336,7 +314,11 @@ function applyFaceToControls() {
   posYVal = clamp01(lerp(posYVal, faceData.y, CONTROL_FILTER));
   dotSize = constrain(lerp(dotSize, dotTarget, CONTROL_FILTER), 1, 200);
 
-  syncControlUI();
+  // DOM 업데이트는 매 프레임 할 필요 없음 (약 10fps로 제한)
+  if (millis() - lastUIUpdateTime > 100) {
+    syncControlUI();
+    lastUIUpdateTime = millis();
+  }
 }
 
 function syncControlUI() {

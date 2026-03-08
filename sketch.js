@@ -10,7 +10,7 @@ let faceMeshInstance = null;
 let faceCamera = null;
 const FACE_FILTER = 0.25;
 const CONTROL_FILTER = 0.2;
-const FACE_WIDTH_RANGE = { min: 0.05, max: 0.3 };
+const FACE_WIDTH_RANGE = { min: 0.02, max: 0.12 }; // 3m(약 0.03) ~ 1.5m(약 0.12) 정도로 대폭 하향
 let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5 };
 
 function setup() {
@@ -159,7 +159,19 @@ function draw() {
     ctx.strokeText(selectedLetter, centerX + dx * weight, centerY + dy * weight);
   }
 
+  // 디버그 정보 (나중에 필요 없으면 삭제)
   ctx.restore();
+  if (faceData.active) {
+    fill(0, 200, 0);
+    textSize(14);
+    textAlign(LEFT, TOP);
+    text(`Face detected! Width: ${faceData.lastRawWidth?.toFixed(3)} | Closeness: ${faceData.closeness.toFixed(2)}`, 20, height - 30);
+  } else {
+    fill(200, 0, 0);
+    textSize(14);
+    textAlign(LEFT, TOP);
+    text("No face detected", 20, height - 30);
+  }
 }
 
 function windowResized() {
@@ -189,10 +201,10 @@ function initFaceTracking() {
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
   });
   faceMeshInstance.setOptions({
-    maxNumFaces: 4, // 여러 명 감지 허용
+    maxNumFaces: 4,
     refineLandmarks: false,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5,
+    minDetectionConfidence: 0.3, // 먼 거리 대응을 위해 낮춤
+    minTrackingConfidence: 0.3,
   });
   faceMeshInstance.onResults(handleFaceResults);
 
@@ -267,6 +279,7 @@ function handleFaceResults(results) {
   const mirroredX = clamp01(1 - centerX);
 
   faceData.active = true;
+  faceData.lastRawWidth = boxWidth; // 디버그용
   faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
   faceData.y = lerp(faceData.y, centerY, FACE_FILTER);
   faceData.closeness = lerp(faceData.closeness, closeness, FACE_FILTER);

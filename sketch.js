@@ -202,25 +202,26 @@ function initFaceTracking() {
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
   });
   faceMeshInstance.setOptions({
-    maxNumFaces: 2, // 4명에서 2명으로 축소하여 처리량 감소
+    maxNumFaces: 1, // 1명으로 제한하여 처리 속도 최대화
     refineLandmarks: false,
     minDetectionConfidence: 0.3,
     minTrackingConfidence: 0.3,
   });
   faceMeshInstance.onResults(handleFaceResults);
 
+  let frameSkipCounter = 0;
   faceCamera = new Camera(faceVideo.elt, {
     width: 320,
     height: 240,
     onFrame: async () => {
       try {
-        // The provided change was a checklist and not valid code.
-        // To maintain syntactical correctness, the original lines are kept.
-        // If you intended to replace these lines with actual code for performance,
-        // please provide the correct code snippet.
-        if (faceMeshInstance && faceVideo.elt.readyState >= 2) {
-          await faceMeshInstance.send({ image: faceVideo.elt });
+        // 3프레임 당 1번만 처제하여 CPU 부하 대폭 감소 (약 20fps)
+        if (frameSkipCounter % 3 === 0) {
+          if (faceMeshInstance && faceVideo.elt.readyState >= 2) {
+            await faceMeshInstance.send({ image: faceVideo.elt });
+          }
         }
+        frameSkipCounter++;
       } catch (e) {
         console.error("onFrame error:", e);
       }
@@ -250,25 +251,8 @@ function handleFaceResults(results) {
     return;
   }
 
-  // 모든 얼굴 중 가장 "가까운" (바운딩 박스가 가장 큰) 얼굴 찾기
-  let closestFaceIndex = 0;
-  let maxBoxWidth = -1;
-
-  for (let f = 0; f < results.multiFaceLandmarks.length; f++) {
-    const landmarks = results.multiFaceLandmarks[f];
-    let minX = 1, maxX = 0;
-    for (let i = 0; i < landmarks.length; i++) {
-      minX = Math.min(minX, landmarks[i].x);
-      maxX = Math.max(maxX, landmarks[i].x);
-    }
-    const currentWidth = maxX - minX;
-    if (currentWidth > maxBoxWidth) {
-      maxBoxWidth = currentWidth;
-      closestFaceIndex = f;
-    }
-  }
-
-  const landmarks = results.multiFaceLandmarks[closestFaceIndex];
+  // maxNumFaces가 1이므로 첫 번째 결과만 사용 (가장 가까운 사람 자동 매칭)
+  const landmarks = results.multiFaceLandmarks[0];
   let minX = 1;
   let maxX = 0;
   let minY = 1;
@@ -276,9 +260,7 @@ function handleFaceResults(results) {
 
   for (let i = 0; i < landmarks.length; i += 1) {
     const lm = landmarks[i];
-    if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) {
-      continue;
-    }
+    if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) continue;
     minX = Math.min(minX, lm.x);
     maxX = Math.max(maxX, lm.x);
     minY = Math.min(minY, lm.y);

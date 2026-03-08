@@ -275,7 +275,15 @@ function handleFaceResults(results) {
 function applyFaceToControls() {
   // 가까워질수록(closeness ↑) 글자 간격/크기도 커지도록 수정 (기존 1 - faceData.closeness 에서 변경)
   const spacingTarget = faceData.closeness;
-  const dotTarget = map(faceData.closeness, 0, 1, 6, 80);
+
+  // 3단계 거리 매핑 (3m: 100px, 2.5m: 40px, 2m: 6px)
+  // closeness 0(3m) -> 100, 0.5(2.5m) -> 40, 1(2m) -> 6
+  let dotTarget;
+  if (faceData.closeness < 0.5) {
+    dotTarget = map(faceData.closeness, 0, 0.5, 100, 40);
+  } else {
+    dotTarget = map(faceData.closeness, 0.5, 1, 40, 6);
+  }
 
   sliderVal = clamp01(lerp(sliderVal, spacingTarget, CONTROL_FILTER));
   posXVal = clamp01(lerp(posXVal, faceData.x, CONTROL_FILTER));

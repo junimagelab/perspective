@@ -273,6 +273,8 @@ function handleFaceResults(results) {
   }
   const centerX = clamp01((minX + maxX) * 0.5);
   const centerY = clamp01((minY + maxY) * 0.5);
+  const mirroredX = clamp01(1 - centerX); // 누락된 변수 정의 추가
+
   // 거리 추정 (m): 약 0.15 / boxWidth (일반적인 웹캠 기준 보정값)
   const estDistance = 0.15 / boxWidth;
 
@@ -288,21 +290,21 @@ function handleFaceResults(results) {
 }
 
 function applyFaceToControls() {
-  // 가까워질수록(closeness ↑) 글자 간격/크기도 커지도록 수정 (기존 1 - faceData.closeness 에서 변경)
+  // 가까워질수록(closeness ↑) 글자 간격/크기도 커지도록 수정
   const spacingTarget = faceData.closeness;
 
-  // 3단계 거리 매핑 (3m: 100px, 2.5m: 40px, 2m: 6px)
+  // 3단계 거리 매핑 반전 (가까울수록 크게: 2m: 100px, 2.5m: 40px, 3m: 6px)
   let dotTarget;
   const d = faceData.distance;
 
-  if (d >= 3.0) {
+  if (d <= 2.0) {
     dotTarget = 100;
-  } else if (d >= 2.5) {
-    // 3.0m ~ 2.5m 사이 매핑
-    dotTarget = map(d, 3.0, 2.5, 100, 40);
-  } else if (d >= 2.0) {
-    // 2.5m ~ 2.0m 사이 매핑
-    dotTarget = map(d, 2.5, 2.0, 40, 6);
+  } else if (d <= 2.5) {
+    // 2.0m ~ 2.5m 사이 매핑
+    dotTarget = map(d, 2.0, 2.5, 100, 40);
+  } else if (d <= 3.0) {
+    // 2.5m ~ 3.0m 사이 매핑
+    dotTarget = map(d, 2.5, 3.0, 40, 6);
   } else {
     dotTarget = 6;
   }

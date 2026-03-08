@@ -10,8 +10,8 @@ let faceMeshInstance = null;
 let faceCamera = null;
 const FACE_FILTER = 0.25;
 const CONTROL_FILTER = 0.2;
-const FACE_WIDTH_RANGE = { min: 0.02, max: 0.12 }; // 3m(약 0.03) ~ 1.5m(약 0.12) 정도로 대폭 하향
-let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5 };
+const FACE_WIDTH_RANGE = { min: 0.02, max: 0.15 };
+let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 3.0 }; // distance 추가
 
 function setup() {
   // 전체 화면 캔버스
@@ -165,7 +165,7 @@ function draw() {
     fill(0, 200, 0);
     textSize(14);
     textAlign(LEFT, TOP);
-    text(`Face detected! Width: ${faceData.lastRawWidth?.toFixed(3)} | Closeness: ${faceData.closeness.toFixed(2)}`, 20, height - 30);
+    text(`Face detected! Est. Distance: ${faceData.distance.toFixed(1)}m | Width: ${faceData.lastRawWidth?.toFixed(3)}`, 20, height - 30);
   } else {
     fill(200, 0, 0);
     textSize(14);
@@ -273,16 +273,18 @@ function handleFaceResults(results) {
   }
   const centerX = clamp01((minX + maxX) * 0.5);
   const centerY = clamp01((minY + maxY) * 0.5);
-  const closenessRaw = map(boxWidth, FACE_WIDTH_RANGE.min, FACE_WIDTH_RANGE.max, 0, 1);
-  const closeness = clamp01(closenessRaw);
-
-  const mirroredX = clamp01(1 - centerX);
+  // 거리 추정 (m): 약 0.15 / boxWidth (일반적인 웹캠 기준 보정값)
+  const estDistance = 0.15 / boxWidth;
 
   faceData.active = true;
-  faceData.lastRawWidth = boxWidth; // 디버그용
+  faceData.lastRawWidth = boxWidth;
+  faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
   faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
   faceData.y = lerp(faceData.y, centerY, FACE_FILTER);
-  faceData.closeness = lerp(faceData.closeness, closeness, FACE_FILTER);
+
+  // 기존 closeness 호환성을 위해 0~1 매핑 유지 (3m 이상=0, 1.5m=1)
+  const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
+  faceData.closeness = clamp01(closenessRaw);
 }
 
 function applyFaceToControls() {
@@ -290,12 +292,19 @@ function applyFaceToControls() {
   const spacingTarget = faceData.closeness;
 
   // 3단계 거리 매핑 (3m: 100px, 2.5m: 40px, 2m: 6px)
-  // closeness 0(3m) -> 100, 0.5(2.5m) -> 40, 1(2m) -> 6
   let dotTarget;
-  if (faceData.closeness < 0.5) {
-    dotTarget = map(faceData.closeness, 0, 0.5, 100, 40);
+  const d = faceData.distance;
+
+  if (d >= 3.0) {
+    dotTarget = 100;
+  } else if (d >= 2.5) {
+    // 3.0m ~ 2.5m 사이 매핑
+    dotTarget = map(d, 3.0, 2.5, 100, 40);
+  } else if (d >= 2.0) {
+    // 2.5m ~ 2.0m 사이 매핑
+    dotTarget = map(d, 2.5, 2.0, 40, 6);
   } else {
-    dotTarget = map(faceData.closeness, 0.5, 1, 40, 6);
+    dotTarget = 6;
   }
 
   sliderVal = clamp01(lerp(sliderVal, spacingTarget, CONTROL_FILTER));

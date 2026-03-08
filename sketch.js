@@ -233,74 +233,75 @@ function initFaceTracking() {
       });
   };
 
-  // 비디오가 흐르기 시작할 때까지 약간의 지연 후 시작
-  faceVideo.elt.onloadeddata = () => {
+  // 비디오가 흐르기 시작할 때까지 기다리거나 이미 준비되었다면 즉시 시작
+  if (faceVideo.elt.readyState >= 2) {
     startCamera();
-  };
+  } else {
+    faceVideo.elt.onloadeddata = () => {
+      startCamera();
+    };
+  }
 }
 
 function handleFaceResults(results) {
-  if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-    faceData.active = false;
-    return;
-  }
-
-  // 모든 얼굴 중 가장 "가까운" (바운딩 박스가 가장 큰) 얼굴 찾기
-  let closestFaceIndex = 0;
-  let maxBoxWidth = -1;
-
-  for (let f = 0; f < results.multiFaceLandmarks.length; f++) {
-    const landmarks = results.multiFaceLandmarks[f];
-    let minX = 1, maxX = 0;
-    for (let i = 0; i < landmarks.length; i++) {
-      minX = Math.min(minX, landmarks[i].x);
-      maxX = Math.max(maxX, landmarks[i].x);
+  try {
+    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+      faceData.active = false;
+      return;
     }
-    const currentWidth = maxX - minX;
-    if (currentWidth > maxBoxWidth) {
-      maxBoxWidth = currentWidth;
-      closestFaceIndex = f;
+
+    // 모든 얼굴 중 가장 "가까운" (바운딩 박스가 가장 큰) 얼굴 찾기
+    let closestFaceIndex = 0;
+    let maxBoxWidth = -1;
+
+    for (let f = 0; f < results.multiFaceLandmarks.length; f++) {
+      const landmarks = results.multiFaceLandmarks[f];
+      let minX = 1, maxX = 0;
+      for (let i = 0; i < landmarks.length; i++) {
+        minX = Math.min(minX, landmarks[i].x);
+        maxX = Math.max(maxX, landmarks[i].x);
+      }
+      const currentWidth = maxX - minX;
+      if (currentWidth > maxBoxWidth) {
+        maxBoxWidth = currentWidth;
+        closestFaceIndex = f;
+      }
     }
-  }
 
-  const landmarks = results.multiFaceLandmarks[closestFaceIndex];
-  let minX = 1;
-  let maxX = 0;
-  let minY = 1;
-  let maxY = 0;
+    const landmarks = results.multiFaceLandmarks[closestFaceIndex];
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
 
-  for (let i = 0; i < landmarks.length; i += 1) {
-    const lm = landmarks[i];
-    if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) {
-      continue;
+    for (let i = 0; i < landmarks.length; i += 1) {
+      const lm = landmarks[i];
+      if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) continue;
+      minX = Math.min(minX, lm.x);
+      maxX = Math.max(maxX, lm.x);
+      minY = Math.min(minY, lm.y);
+      maxY = Math.max(maxY, lm.y);
     }
-    minX = Math.min(minX, lm.x);
-    maxX = Math.max(maxX, lm.x);
-    minY = Math.min(minY, lm.y);
-    maxY = Math.max(maxY, lm.y);
+
+    const boxWidth = Math.max(0, maxX - minX);
+    if (boxWidth <= 0) {
+      faceData.active = false;
+      return;
+    }
+
+    const centerX = (minX + maxX) * 0.5;
+    const centerY = (minY + maxY) * 0.5;
+    const mirroredX = clamp01(1 - centerX);
+    const estDistance = 0.15 / boxWidth;
+
+    faceData.active = true;
+    faceData.lastRawWidth = boxWidth;
+    faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
+    faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
+    faceData.y = lerp(faceData.y, centerY, FACE_FILTER);
+
+    const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
+    faceData.closeness = clamp01(closenessRaw || 0);
+  } catch (err) {
+    console.error("handleFaceResults error:", err);
   }
-
-  const boxWidth = Math.max(0, maxX - minX);
-  if (boxWidth <= 0) {
-    faceData.active = false;
-    return;
-  }
-  const centerX = clamp01((minX + maxX) * 0.5);
-  const centerY = clamp01((minY + maxY) * 0.5);
-  const mirroredX = clamp01(1 - centerX); // 누락된 변수 정의 추가
-
-  // 거리 추정 (m): 약 0.15 / boxWidth (일반적인 웹캠 기준 보정값)
-  const estDistance = 0.15 / boxWidth;
-
-  faceData.active = true;
-  faceData.lastRawWidth = boxWidth;
-  faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
-  faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
-  faceData.y = lerp(faceData.y, centerY, FACE_FILTER);
-
-  // 기존 closeness 호환성을 위해 0~1 매핑 유지 (3m 이상=0, 1.5m=1)
-  const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
-  faceData.closeness = clamp01(closenessRaw || 0); // NaN 방지
 }
 
 function applyFaceToControls() {

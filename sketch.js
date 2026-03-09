@@ -200,8 +200,13 @@ function initFaceTracking() {
     return;
   }
 
+  // 모바일/태블릿 감지
+  const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
+  const camW = isMobile ? 320 : 640;
+  const camH = isMobile ? 240 : 480;
+
   faceVideo = createCapture({ video: { facingMode: 'user' }, audio: false });
-  faceVideo.size(640, 480);
+  faceVideo.size(camW, camH);
   faceVideo.elt.muted = true;
   faceVideo.elt.playsInline = true;
   faceVideo.hide();
@@ -210,7 +215,7 @@ function initFaceTracking() {
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
   });
   faceDetection.setOptions({
-    model: 'full',           // 'full' = 5m까지 대응 (먼 거리 인식 개선)
+    model: isMobile ? 'short' : 'full',  // 모바일: 가벼운 short, 데스크탑: full
     minDetectionConfidence: 0.3,
   });
 
@@ -220,17 +225,14 @@ function initFaceTracking() {
       return;
     }
 
-    // 첫 번째 감지 결과 (가장 확신도가 높은 얼굴)
     const det = results.detections[0];
     const box = det.boundingBox;
 
-    // boundingBox: xCenter, yCenter, width, height (0~1 정규화)
     const normW = box.width;
     const normCX = box.xCenter;
     const normCY = box.yCenter;
     const mirroredX = clamp01(1 - normCX);
 
-    // 거리 추정 (m)
     const estDistance = 0.15 / Math.max(normW, 0.001);
 
     faceData.active = true;
@@ -243,15 +245,20 @@ function initFaceTracking() {
     faceData.closeness = clamp01(closenessRaw || 0);
   });
 
+  let frameSkipCounter = 0;
   faceCamera = new Camera(faceVideo.elt, {
-    width: 640,
-    height: 480,
+    width: camW,
+    height: camH,
     onFrame: async () => {
       try {
-        // FaceDetection은 가벼우므로 매 프레임 처리 (프레임 스킵 제거)
-        if (faceVideo.elt.readyState >= 2) {
-          await faceDetection.send({ image: faceVideo.elt });
+        // 모바일: 3프레임당 1번, 데스크탑: 매 프레임
+        const skip = isMobile ? 3 : 1;
+        if (frameSkipCounter % skip === 0) {
+          if (faceVideo.elt.readyState >= 2) {
+            await faceDetection.send({ image: faceVideo.elt });
+          }
         }
+        frameSkipCounter++;
       } catch (e) {
         // 간헐적 에러 무시
       }

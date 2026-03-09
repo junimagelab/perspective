@@ -187,115 +187,75 @@ function windowResized() {
 }
 
 function initFaceTracking() {
-  if (typeof FaceMesh === 'undefined' || typeof Camera === 'undefined') {
-    console.warn('Face tracking scripts not available.');
-    showTrackingWarning('Face tracking script failed to load. Manual controls only.');
+  // 브라우저 내장 FaceDetector API 사용 (Mediapipe 대비 극도로 가벼움)
+  if (typeof FaceDetector === 'undefined') {
+    console.warn('FaceDetector API not supported. Try Chrome.');
+    showTrackingWarning('FaceDetector not supported. Use Chrome for face tracking.');
     return;
   }
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    console.warn('MediaDevices.getUserMedia is not supported in this environment.');
-    showTrackingWarning('Camera access is not supported here. Manual controls only.');
+    console.warn('Camera not supported.');
+    showTrackingWarning('Camera access not supported.');
     return;
   }
 
-  faceVideo = createCapture({ video: { facingMode: 'user' }, audio: false });
-  faceVideo.size(480, 360); // 640->480으로 조정하여 인식 범위와 성능 균형
+  const detector = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+
+  faceVideo = createCapture({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false });
   faceVideo.elt.muted = true;
   faceVideo.elt.playsInline = true;
   faceVideo.hide();
 
-  faceMeshInstance = new FaceMesh({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-  });
-  faceMeshInstance.setOptions({
-    maxNumFaces: 1, // 1명으로 제한하여 처리 속도 최대화
-    refineLandmarks: false,
-    minDetectionConfidence: 0.3,
-    minTrackingConfidence: 0.3,
-  });
-  faceMeshInstance.onResults(handleFaceResults);
+  let detecting = false;
+  const DETECT_INTERVAL = 150; // ms 간격 (초당 ~6-7회 감지, 충분히 부드러움)
 
-  let frameSkipCounter = 0;
-  faceCamera = new Camera(faceVideo.elt, {
-    width: 480,
-    height: 360,
-    onFrame: async () => {
-      try {
-        // 4프레임 당 1번만 처리 (CPU 부하 최소화)
-        if (frameSkipCounter % 4 === 0) {
-          if (faceMeshInstance && faceVideo.elt.readyState >= 2) {
-            await faceMeshInstance.send({ image: faceVideo.elt });
-          }
-        }
-        frameSkipCounter++;
-      } catch (e) {
-        console.error("onFrame error:", e);
+  async function detectLoop() {
+    if (detecting || !faceVideo.elt || faceVideo.elt.readyState < 2) {
+      setTimeout(detectLoop, DETECT_INTERVAL);
+      return;
+    }
+    detecting = true;
+    try {
+      const faces = await detector.detect(faceVideo.elt);
+      if (faces.length > 0) {
+        const box = faces[0].boundingBox;
+        const vw = faceVideo.elt.videoWidth || 640;
+        const vh = faceVideo.elt.videoHeight || 480;
+
+        // 0~1 정규화
+        const normW = box.width / vw;
+        const normCX = (box.x + box.width / 2) / vw;
+        const normCY = (box.y + box.height / 2) / vh;
+        const mirroredX = clamp01(1 - normCX);
+
+        // 거리 추정 (m)
+        const estDistance = 0.15 / Math.max(normW, 0.001);
+
+        faceData.active = true;
+        faceData.lastRawWidth = normW;
+        faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
+        faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
+        faceData.y = lerp(faceData.y, clamp01(normCY), FACE_FILTER);
+
+        const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
+        faceData.closeness = clamp01(closenessRaw || 0);
+      } else {
+        faceData.active = false;
       }
-    },
-  });
+    } catch (e) {
+      // 간헐적 에러 무시
+    }
+    detecting = false;
+    setTimeout(detectLoop, DETECT_INTERVAL);
+  }
 
-  const startCamera = () => {
-    faceCamera.start()
-      .then(() => hideTrackingWarning())
-      .catch((err) => {
-        console.warn('Face tracking camera failed to start:', err);
-        showTrackingWarning('Could not start camera. Check permissions or use manual controls.');
-        // 재시도 로직 (필요시)
-        setTimeout(startCamera, 3000);
-      });
-  };
-
-  // 비디오가 흐르기 시작할 때까지 약간의 지연 후 시작
   faceVideo.elt.onloadeddata = () => {
-    startCamera();
+    hideTrackingWarning();
+    detectLoop();
   };
 }
 
-function handleFaceResults(results) {
-  if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-    faceData.active = false;
-    return;
-  }
-
-  // maxNumFaces가 1이므로 첫 번째 결과만 사용 (가장 가까운 사람 자동 매칭)
-  const landmarks = results.multiFaceLandmarks[0];
-  let minX = 1;
-  let maxX = 0;
-  let minY = 1;
-  let maxY = 0;
-
-  for (let i = 0; i < landmarks.length; i += 1) {
-    const lm = landmarks[i];
-    if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) continue;
-    minX = Math.min(minX, lm.x);
-    maxX = Math.max(maxX, lm.x);
-    minY = Math.min(minY, lm.y);
-    maxY = Math.max(maxY, lm.y);
-  }
-
-  const boxWidth = Math.max(0, maxX - minX);
-  if (boxWidth <= 0) {
-    faceData.active = false;
-    return;
-  }
-  const centerX = clamp01((minX + maxX) * 0.5);
-  const centerY = clamp01((minY + maxY) * 0.5);
-  const mirroredX = clamp01(1 - centerX); // 누락된 변수 정의 추가
-
-  // 거리 추정 (m): 약 0.15 / boxWidth (일반적인 웹캠 기준 보정값)
-  const estDistance = 0.15 / boxWidth;
-
-  faceData.active = true;
-  faceData.lastRawWidth = boxWidth;
-  faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
-  faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
-  faceData.y = lerp(faceData.y, centerY, FACE_FILTER);
-
-  // 기존 closeness 호환성을 위해 0~1 매핑 유지 (3m 이상=0, 1.5m=1)
-  const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
-  faceData.closeness = clamp01(closenessRaw || 0); // NaN 방지
-}
 
 function applyFaceToControls() {
   // 가까워질수록(closeness ↑) 글자 간격/크기도 커지도록 수정

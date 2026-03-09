@@ -187,9 +187,8 @@ function windowResized() {
 }
 
 function initFaceTracking() {
-  // Mediapipe FaceDetection 사용 (FaceMesh 대비 매우 가벼움: 6 keypoints vs 468)
-  if (typeof FaceDetection === 'undefined') {
-    console.warn('FaceDetection scripts not loaded.');
+  if (typeof FaceMesh === 'undefined' || typeof Camera === 'undefined') {
+    console.warn('Face tracking scripts not available.');
     showTrackingWarning('Face tracking script failed to load.');
     return;
   }
@@ -211,40 +210,48 @@ function initFaceTracking() {
   faceVideo.elt.playsInline = true;
   faceVideo.hide();
 
-  const faceDetection = new FaceDetection({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
+  faceMeshInstance = new FaceMesh({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
   });
-  faceDetection.setOptions({
-    model: 'short',  // 'short' = 2m 이내 최적화 ('full'은 WASM 크래시 발생)
+  faceMeshInstance.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: false,
     minDetectionConfidence: 0.3,
+    minTrackingConfidence: 0.3,
   });
 
-  faceDetection.onResults((results) => {
+  faceMeshInstance.onResults((results) => {
     try {
-      if (!results.detections || results.detections.length === 0) {
+      if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
         faceData.active = false;
         return;
       }
 
-      const det = results.detections[0];
-      const box = det.boundingBox;
-      if (!box) {
-        faceData.active = false;
-        return;
+      const landmarks = results.multiFaceLandmarks[0];
+      let minX = 1, maxX = 0, minY = 1, maxY = 0;
+
+      for (let i = 0; i < landmarks.length; i++) {
+        const lm = landmarks[i];
+        if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) continue;
+        minX = Math.min(minX, lm.x);
+        maxX = Math.max(maxX, lm.x);
+        minY = Math.min(minY, lm.y);
+        maxY = Math.max(maxY, lm.y);
       }
 
-      // Mediapipe FaceDetection: origin_x, origin_y, width, height (모두 0~1 정규화)
-      const normW = box.width || 0;
-      const normCX = (box.origin_x || 0) + normW / 2;
-      const normCY = (box.origin_y || 0) + (box.height || 0) / 2;
-      const mirroredX = clamp01(1 - normCX);
-      const estDistance = 0.15 / Math.max(normW, 0.001);
+      const boxWidth = Math.max(0, maxX - minX);
+      if (boxWidth <= 0) { faceData.active = false; return; }
+
+      const centerX = (minX + maxX) * 0.5;
+      const centerY = (minY + maxY) * 0.5;
+      const mirroredX = clamp01(1 - centerX);
+      const estDistance = 0.15 / boxWidth;
 
       faceData.active = true;
-      faceData.lastRawWidth = normW;
+      faceData.lastRawWidth = boxWidth;
       faceData.distance = lerp(faceData.distance, estDistance, FACE_FILTER);
       faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
-      faceData.y = lerp(faceData.y, clamp01(normCY), FACE_FILTER);
+      faceData.y = lerp(faceData.y, clamp01(centerY), FACE_FILTER);
 
       const closenessRaw = map(faceData.distance, 0.7, 0.3, 0, 1);
       faceData.closeness = clamp01(closenessRaw || 0);
@@ -254,8 +261,7 @@ function initFaceTracking() {
   });
 
   if (isMobile) {
-    // iOS: Mediapipe Camera 유틸리티가 WebKit에서 작동하지 않으므로
-    // setInterval로 직접 프레임을 보내는 방식으로 우회
+    // iOS: Camera 유틸리티가 WebKit에서 불안정 → setInterval 우회
     let detecting = false;
     faceVideo.elt.onloadeddata = () => {
       hideTrackingWarning();
@@ -265,21 +271,24 @@ function initFaceTracking() {
         if (v.readyState < 2 || v.videoWidth === 0 || v.videoHeight === 0) return;
         detecting = true;
         try {
-          await faceDetection.send({ image: v });
+          await faceMeshInstance.send({ image: v });
         } catch (e) { /* 무시 */ }
         detecting = false;
-      }, 200);
+      }, 250); // 250ms 간격 (모바일 부하 줄이기)
     };
   } else {
-    // 데스크탑: Mediapipe Camera 유틸리티 사용 (더 효율적)
+    // 데스크탑: Camera 유틸리티 + 프레임 스킵
+    let frameSkipCounter = 0;
     faceCamera = new Camera(faceVideo.elt, {
       width: camW,
       height: camH,
       onFrame: async () => {
         try {
+          frameSkipCounter++;
+          if (frameSkipCounter % 2 !== 0) return; // 2프레임당 1번
           const v = faceVideo.elt;
           if (v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0) {
-            await faceDetection.send({ image: v });
+            await faceMeshInstance.send({ image: v });
           }
         } catch (e) { /* 무시 */ }
       },

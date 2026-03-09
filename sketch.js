@@ -11,7 +11,7 @@ let faceCamera = null;
 const FACE_FILTER = 0.4; // 반응 속도 향상 (0.15 → 0.4): 빠르게 따라가면서도 적당히 부드럽게
 const CONTROL_FILTER = 0.2;
 const FACE_WIDTH_RANGE = { min: 0.02, max: 0.15 };
-let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 3.0 }; // distance 추가
+let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 0.5 };
 
 function setup() {
   // 전체 화면 캔버스
@@ -220,29 +220,54 @@ function initFaceTracking() {
   });
 
   faceDetection.onResults((results) => {
-    if (!results.detections || results.detections.length === 0) {
-      faceData.active = false;
-      return;
+    try {
+      if (!results.detections || results.detections.length === 0) {
+        faceData.active = false;
+        return;
+      }
+
+      const det = results.detections[0];
+      const box = det.boundingBox;
+      if (!box) {
+        faceData.active = false;
+        return;
+      }
+
+      // Mediapipe FaceDetection boundingBox 형식 대응
+      // 버전에 따라 xCenter/yCenter 또는 x/y + width/height (px) 형식일 수 있음
+      let normW, normCX, normCY;
+
+      if (typeof box.xCenter === 'number') {
+        // 정규화된 형식 (0~1)
+        normW = box.width;
+        normCX = box.xCenter;
+        normCY = box.yCenter;
+      } else if (typeof box.x === 'number') {
+        // 픽셀 형식 → 정규화 필요
+        const vw = (faceVideo.elt.videoWidth || 640);
+        const vh = (faceVideo.elt.videoHeight || 480);
+        normW = box.width / vw;
+        normCX = (box.x + box.width / 2) / vw;
+        normCY = (box.y + box.height / 2) / vh;
+      } else {
+        faceData.active = false;
+        return;
+      }
+
+      const mirroredX = clamp01(1 - normCX);
+      const estDistance = 0.15 / Math.max(normW, 0.001);
+
+      faceData.active = true;
+      faceData.lastRawWidth = normW;
+      faceData.distance = lerp(faceData.distance, estDistance, FACE_FILTER);
+      faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
+      faceData.y = lerp(faceData.y, clamp01(normCY), FACE_FILTER);
+
+      const closenessRaw = map(faceData.distance, 0.7, 0.3, 0, 1);
+      faceData.closeness = clamp01(closenessRaw || 0);
+    } catch (e) {
+      console.warn('Face result error:', e);
     }
-
-    const det = results.detections[0];
-    const box = det.boundingBox;
-
-    const normW = box.width;
-    const normCX = box.xCenter;
-    const normCY = box.yCenter;
-    const mirroredX = clamp01(1 - normCX);
-
-    const estDistance = 0.15 / Math.max(normW, 0.001);
-
-    faceData.active = true;
-    faceData.lastRawWidth = normW;
-    faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
-    faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
-    faceData.y = lerp(faceData.y, clamp01(normCY), FACE_FILTER);
-
-    const closenessRaw = map(faceData.distance, 0.7, 0.3, 0, 1);
-    faceData.closeness = clamp01(closenessRaw || 0);
   });
 
   if (isMobile) {

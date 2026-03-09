@@ -188,7 +188,7 @@ function windowResized() {
 
 function initFaceTracking() {
   // Mediapipe FaceDetection 사용 (FaceMesh 대비 매우 가벼움: 6 keypoints vs 468)
-  if (typeof FaceDetection === 'undefined' || typeof Camera === 'undefined') {
+  if (typeof FaceDetection === 'undefined') {
     console.warn('FaceDetection scripts not loaded.');
     showTrackingWarning('Face tracking script failed to load.');
     return;
@@ -245,34 +245,44 @@ function initFaceTracking() {
     faceData.closeness = clamp01(closenessRaw || 0);
   });
 
-  let frameSkipCounter = 0;
-  faceCamera = new Camera(faceVideo.elt, {
-    width: camW,
-    height: camH,
-    onFrame: async () => {
-      try {
-        // 모바일: 3프레임당 1번, 데스크탑: 매 프레임
-        const skip = isMobile ? 3 : 1;
-        if (frameSkipCounter % skip === 0) {
+  if (isMobile) {
+    // iOS: Mediapipe Camera 유틸리티가 WebKit에서 작동하지 않으므로
+    // setInterval로 직접 프레임을 보내는 방식으로 우회
+    let detecting = false;
+    faceVideo.elt.onloadeddata = () => {
+      hideTrackingWarning();
+      setInterval(async () => {
+        if (detecting || faceVideo.elt.readyState < 2) return;
+        detecting = true;
+        try {
+          await faceDetection.send({ image: faceVideo.elt });
+        } catch (e) { /* 무시 */ }
+        detecting = false;
+      }, 200); // 200ms 간격 (초당 5회, iOS에서 안정적)
+    };
+  } else {
+    // 데스크탑: Mediapipe Camera 유틸리티 사용 (더 효율적)
+    faceCamera = new Camera(faceVideo.elt, {
+      width: camW,
+      height: camH,
+      onFrame: async () => {
+        try {
           if (faceVideo.elt.readyState >= 2) {
             await faceDetection.send({ image: faceVideo.elt });
           }
-        }
-        frameSkipCounter++;
-      } catch (e) {
-        // 간헐적 에러 무시
-      }
-    },
-  });
+        } catch (e) { /* 무시 */ }
+      },
+    });
 
-  faceVideo.elt.onloadeddata = () => {
-    faceCamera.start()
-      .then(() => hideTrackingWarning())
-      .catch((err) => {
-        console.warn('Camera failed:', err);
-        showTrackingWarning('Could not start camera.');
-      });
-  };
+    faceVideo.elt.onloadeddata = () => {
+      faceCamera.start()
+        .then(() => hideTrackingWarning())
+        .catch((err) => {
+          console.warn('Camera failed:', err);
+          showTrackingWarning('Could not start camera.');
+        });
+    };
+  }
 }
 
 function applyFaceToControls() {

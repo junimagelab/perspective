@@ -8,7 +8,7 @@ const controlRefs = { sizeBar: null, posXBar: null, posYBar: null, dotBar: null 
 let faceVideo = null;
 let faceMeshInstance = null;
 let faceCamera = null;
-const FACE_FILTER = 0.25;
+const FACE_FILTER = 0.15; // 스무딩 강화 (0.25 → 0.15): 업데이트가 덜 위해도 부드럽게
 const CONTROL_FILTER = 0.2;
 const FACE_WIDTH_RANGE = { min: 0.02, max: 0.15 };
 let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 3.0 }; // distance 추가
@@ -210,7 +210,7 @@ function initFaceTracking() {
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
   });
   faceDetection.setOptions({
-    model: 'short',          // 'short' = 2m 이내 최적화, 'full' = 5m까지
+    model: 'full',           // 'full' = 5m까지 대응 (먼 거리 인식 개선)
     minDetectionConfidence: 0.3,
   });
 
@@ -243,19 +243,15 @@ function initFaceTracking() {
     faceData.closeness = clamp01(closenessRaw || 0);
   });
 
-  let frameSkipCounter = 0;
   faceCamera = new Camera(faceVideo.elt, {
     width: 640,
     height: 480,
     onFrame: async () => {
       try {
-        // 3프레임당 1번 처리 (FaceDetection은 가벼워서 이 정도면 충분)
-        if (frameSkipCounter % 3 === 0) {
-          if (faceVideo.elt.readyState >= 2) {
-            await faceDetection.send({ image: faceVideo.elt });
-          }
+        // FaceDetection은 가벼우므로 매 프레임 처리 (프레임 스킵 제거)
+        if (faceVideo.elt.readyState >= 2) {
+          await faceDetection.send({ image: faceVideo.elt });
         }
-        frameSkipCounter++;
       } catch (e) {
         // 간헐적 에러 무시
       }

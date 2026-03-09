@@ -215,7 +215,7 @@ function initFaceTracking() {
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
   });
   faceDetection.setOptions({
-    model: isMobile ? 'short' : 'full',  // 모바일: 가벼운 short, 데스크탑: full
+    model: 'short',  // 'short' = 2m 이내 최적화 ('full'은 WASM 크래시 발생)
     minDetectionConfidence: 0.3,
   });
 

@@ -260,13 +260,15 @@ function initFaceTracking() {
     faceVideo.elt.onloadeddata = () => {
       hideTrackingWarning();
       setInterval(async () => {
-        if (detecting || faceVideo.elt.readyState < 2) return;
+        if (detecting) return;
+        const v = faceVideo.elt;
+        if (v.readyState < 2 || v.videoWidth === 0 || v.videoHeight === 0) return;
         detecting = true;
         try {
-          await faceDetection.send({ image: faceVideo.elt });
+          await faceDetection.send({ image: v });
         } catch (e) { /* 무시 */ }
         detecting = false;
-      }, 200); // 200ms 간격 (초당 5회, iOS에서 안정적)
+      }, 200);
     };
   } else {
     // 데스크탑: Mediapipe Camera 유틸리티 사용 (더 효율적)
@@ -275,8 +277,9 @@ function initFaceTracking() {
       height: camH,
       onFrame: async () => {
         try {
-          if (faceVideo.elt.readyState >= 2) {
-            await faceDetection.send({ image: faceVideo.elt });
+          const v = faceVideo.elt;
+          if (v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0) {
+            await faceDetection.send({ image: v });
           }
         } catch (e) { /* 무시 */ }
       },

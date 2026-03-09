@@ -187,10 +187,10 @@ function windowResized() {
 }
 
 function initFaceTracking() {
-  // 브라우저 내장 FaceDetector API 사용 (Mediapipe 대비 극도로 가벼움)
-  if (typeof FaceDetector === 'undefined') {
-    console.warn('FaceDetector API not supported. Try Chrome.');
-    showTrackingWarning('FaceDetector not supported. Use Chrome for face tracking.');
+  // Mediapipe FaceDetection 사용 (FaceMesh 대비 매우 가벼움: 6 keypoints vs 468)
+  if (typeof FaceDetection === 'undefined' || typeof Camera === 'undefined') {
+    console.warn('FaceDetection scripts not loaded.');
+    showTrackingWarning('Face tracking script failed to load.');
     return;
   }
 
@@ -200,62 +200,77 @@ function initFaceTracking() {
     return;
   }
 
-  const detector = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-
-  faceVideo = createCapture({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false });
+  faceVideo = createCapture({ video: { facingMode: 'user' }, audio: false });
+  faceVideo.size(640, 480);
   faceVideo.elt.muted = true;
   faceVideo.elt.playsInline = true;
   faceVideo.hide();
 
-  let detecting = false;
-  const DETECT_INTERVAL = 150; // ms 간격 (초당 ~6-7회 감지, 충분히 부드러움)
+  const faceDetection = new FaceDetection({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
+  });
+  faceDetection.setOptions({
+    model: 'short',          // 'short' = 2m 이내 최적화, 'full' = 5m까지
+    minDetectionConfidence: 0.3,
+  });
 
-  async function detectLoop() {
-    if (detecting || !faceVideo.elt || faceVideo.elt.readyState < 2) {
-      setTimeout(detectLoop, DETECT_INTERVAL);
+  faceDetection.onResults((results) => {
+    if (!results.detections || results.detections.length === 0) {
+      faceData.active = false;
       return;
     }
-    detecting = true;
-    try {
-      const faces = await detector.detect(faceVideo.elt);
-      if (faces.length > 0) {
-        const box = faces[0].boundingBox;
-        const vw = faceVideo.elt.videoWidth || 640;
-        const vh = faceVideo.elt.videoHeight || 480;
 
-        // 0~1 정규화
-        const normW = box.width / vw;
-        const normCX = (box.x + box.width / 2) / vw;
-        const normCY = (box.y + box.height / 2) / vh;
-        const mirroredX = clamp01(1 - normCX);
+    // 첫 번째 감지 결과 (가장 확신도가 높은 얼굴)
+    const det = results.detections[0];
+    const box = det.boundingBox;
 
-        // 거리 추정 (m)
-        const estDistance = 0.15 / Math.max(normW, 0.001);
+    // boundingBox: xCenter, yCenter, width, height (0~1 정규화)
+    const normW = box.width;
+    const normCX = box.xCenter;
+    const normCY = box.yCenter;
+    const mirroredX = clamp01(1 - normCX);
 
-        faceData.active = true;
-        faceData.lastRawWidth = normW;
-        faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
-        faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
-        faceData.y = lerp(faceData.y, clamp01(normCY), FACE_FILTER);
+    // 거리 추정 (m)
+    const estDistance = 0.15 / Math.max(normW, 0.001);
 
-        const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
-        faceData.closeness = clamp01(closenessRaw || 0);
-      } else {
-        faceData.active = false;
+    faceData.active = true;
+    faceData.lastRawWidth = normW;
+    faceData.distance = lerp(faceData.distance || 3, estDistance, FACE_FILTER);
+    faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
+    faceData.y = lerp(faceData.y, clamp01(normCY), FACE_FILTER);
+
+    const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
+    faceData.closeness = clamp01(closenessRaw || 0);
+  });
+
+  let frameSkipCounter = 0;
+  faceCamera = new Camera(faceVideo.elt, {
+    width: 640,
+    height: 480,
+    onFrame: async () => {
+      try {
+        // 3프레임당 1번 처리 (FaceDetection은 가벼워서 이 정도면 충분)
+        if (frameSkipCounter % 3 === 0) {
+          if (faceVideo.elt.readyState >= 2) {
+            await faceDetection.send({ image: faceVideo.elt });
+          }
+        }
+        frameSkipCounter++;
+      } catch (e) {
+        // 간헐적 에러 무시
       }
-    } catch (e) {
-      // 간헐적 에러 무시
-    }
-    detecting = false;
-    setTimeout(detectLoop, DETECT_INTERVAL);
-  }
+    },
+  });
 
   faceVideo.elt.onloadeddata = () => {
-    hideTrackingWarning();
-    detectLoop();
+    faceCamera.start()
+      .then(() => hideTrackingWarning())
+      .catch((err) => {
+        console.warn('Camera failed:', err);
+        showTrackingWarning('Could not start camera.');
+      });
   };
 }
-
 
 function applyFaceToControls() {
   // 가까워질수록(closeness ↑) 글자 간격/크기도 커지도록 수정

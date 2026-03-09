@@ -241,7 +241,7 @@ function initFaceTracking() {
     faceData.x = lerp(faceData.x, mirroredX, FACE_FILTER);
     faceData.y = lerp(faceData.y, clamp01(normCY), FACE_FILTER);
 
-    const closenessRaw = map(faceData.distance, 3.0, 1.5, 0, 1);
+    const closenessRaw = map(faceData.distance, 0.7, 0.3, 0, 1);
     faceData.closeness = clamp01(closenessRaw || 0);
   });
 
@@ -289,18 +289,18 @@ function applyFaceToControls() {
   // 가까워질수록(closeness ↑) 글자 간격/크기도 커지도록 수정
   const spacingTarget = faceData.closeness;
 
-  // 3단계 거리 매핑 반전 (가까울수록 크게: 2m: 100px, 2.5m: 40px, 3m: 6px)
+  // 3단계 거리 매핑 (0.5m 기준: 0.3m: 100px, 0.5m: 40px, 0.7m: 6px)
   let dotTarget;
   const d = faceData.distance;
 
-  if (d <= 2.0) {
+  if (d <= 0.3) {
     dotTarget = 100;
-  } else if (d <= 2.5) {
-    // 2.0m ~ 2.5m 사이 매핑
-    dotTarget = map(d, 2.0, 2.5, 100, 40);
-  } else if (d <= 3.0) {
-    // 2.5m ~ 3.0m 사이 매핑
-    dotTarget = map(d, 2.5, 3.0, 40, 6);
+  } else if (d <= 0.5) {
+    // 0.3m ~ 0.5m 사이 매핑
+    dotTarget = map(d, 0.3, 0.5, 100, 40);
+  } else if (d <= 0.7) {
+    // 0.5m ~ 0.7m 사이 매핑
+    dotTarget = map(d, 0.5, 0.7, 40, 6);
   } else {
     dotTarget = 6;
   }

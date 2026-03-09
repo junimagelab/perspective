@@ -8,7 +8,7 @@ const controlRefs = { sizeBar: null, posXBar: null, posYBar: null, dotBar: null 
 let faceVideo = null;
 let faceMeshInstance = null;
 let faceCamera = null;
-const FACE_FILTER = 0.4; // 반응 속도 향상 (0.15 → 0.4): 빠르게 따라가면서도 적당히 부드럽게
+const FACE_FILTER = 0.25; // 스무딩: 4프레임 스킵에 맞춰 부드럽게 보간
 const CONTROL_FILTER = 0.2;
 const FACE_WIDTH_RANGE = { min: 0.02, max: 0.15 };
 let faceData = { active: false, x: 0.5, y: 0.5, closeness: 0.5, distance: 0.5 };
@@ -285,7 +285,7 @@ function initFaceTracking() {
       onFrame: async () => {
         try {
           frameSkipCounter++;
-          if (frameSkipCounter % 2 !== 0) return; // 2프레임당 1번
+          if (frameSkipCounter % 4 !== 0) return; // 4프레임당 1번 (부하 최소화)
           const v = faceVideo.elt;
           if (v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0) {
             await faceMeshInstance.send({ image: v });

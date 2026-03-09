@@ -233,27 +233,10 @@ function initFaceTracking() {
         return;
       }
 
-      // Mediapipe FaceDetection boundingBox 형식 대응
-      // 버전에 따라 xCenter/yCenter 또는 x/y + width/height (px) 형식일 수 있음
-      let normW, normCX, normCY;
-
-      if (typeof box.xCenter === 'number') {
-        // 정규화된 형식 (0~1)
-        normW = box.width;
-        normCX = box.xCenter;
-        normCY = box.yCenter;
-      } else if (typeof box.x === 'number') {
-        // 픽셀 형식 → 정규화 필요
-        const vw = (faceVideo.elt.videoWidth || 640);
-        const vh = (faceVideo.elt.videoHeight || 480);
-        normW = box.width / vw;
-        normCX = (box.x + box.width / 2) / vw;
-        normCY = (box.y + box.height / 2) / vh;
-      } else {
-        faceData.active = false;
-        return;
-      }
-
+      // Mediapipe FaceDetection: origin_x, origin_y, width, height (모두 0~1 정규화)
+      const normW = box.width || 0;
+      const normCX = (box.origin_x || 0) + normW / 2;
+      const normCY = (box.origin_y || 0) + (box.height || 0) / 2;
       const mirroredX = clamp01(1 - normCX);
       const estDistance = 0.15 / Math.max(normW, 0.001);
 
